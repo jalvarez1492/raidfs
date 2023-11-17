@@ -88,9 +88,9 @@ listens on port 8000, and no Get() will return a checksum error
 Make sure your client prints out "CORRUPTED_BLOCK " followed by the block number when the server responds with a checksum error
 
 
-## shell.py ##
+## fsmain.py ##
 
-The main changes you need to implement in the shell, compared to homework #4, are:
+The main changes you need to implement in command-line parsing, compared to homework #4, are:
 
 1) A command-line argument "ns" specifying N (the number of servers). 
 
