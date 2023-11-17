@@ -31,7 +31,7 @@ class DiskBlocks():
     ## Put: interface to write a raw block of data to the block indexed by block number
     ## Blocks are padded with zeroes up to BLOCK_SIZE
 
-    def Put(self, block_number, block_data):
+    def SinglePut(self, block_number, block_data):
 
         logging.debug(
             'Put: block number ' + str(block_number) + ' len ' + str(len(block_data)) + '\n' + str(block_data.hex()))
@@ -85,7 +85,7 @@ class DiskBlocks():
     ## Get: interface to read a raw block of data from block indexed by block number
     ## Equivalent to the textbook's BLOCK_NUMBER_TO_BLOCK(b)
 
-    def Get(self, block_number):
+    def SingleGet(self, block_number):
 
         logging.debug('Get: ' + str(block_number))
         if block_number in range(0, fsconfig.TOTAL_NUM_BLOCKS):
@@ -167,6 +167,37 @@ class DiskBlocks():
             updated_block = bytearray(fsconfig.BLOCK_SIZE)
             updated_block[0] = fsconfig.CID
             self.Put(LAST_WRITER_BLOCK,updated_block)
+
+    ## HW5 ##
+
+    def MapBlockNumber(self, virtual_block_number):
+        server = 0
+        block_number = 0
+        return (server, block_number)
+
+    def Get(self, virtual_block_number):
+        server, block_number = self.MapBlockNumber(virtual_block_number)
+        # configure server here, or in SingleGet? not sure yet
+        data = self.SingleGet(block_number)
+
+        if data == -1:
+            print("CORRUPTED BLOCK" , str(virtual_block_number)) # virtual or physical?
+            return -1
+        else:
+            return data
+        
+    def Put(self, virtual_block_number, block_data):
+        server, block_number = self.MapBlockNumber(virtual_block_number)
+        # configure server here, or in SingleGet? not sure yet
+
+        # if block_number is corrupted:
+        # print("CORRUPTED BLOCK" , str(virtual_block_number)) # virtual or physical?
+
+        # implement logic ot distribute blocks across multiple servers
+        self.SinglePut(block_number, block_data)
+        return
+        
+
 
     ## Serializes and saves the DiskBlocks block[] data structure to a "dump" file on your disk
 
