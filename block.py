@@ -9,6 +9,11 @@ import xmlrpc.client, socket, time
 class DiskBlocks():
     def __init__(self):
 
+        self.block_servers = []
+
+        # initialize block cache empty
+        self.blockcache = {}
+
         # initialize clientID
         if fsconfig.CID >= 0 and fsconfig.CID < fsconfig.MAX_CLIENTS:
             self.clientID = fsconfig.CID
@@ -16,22 +21,24 @@ class DiskBlocks():
             print('Must specify valid cid')
             quit()
 
-        # initialize XMLRPC client connection to raw block server
         if fsconfig.PORT:
             PORT = fsconfig.PORT
         else:
             print('Must specify port number')
             quit()
-        server_url = 'http://' + fsconfig.SERVER_ADDRESS + ':' + str(PORT)
-        self.block_server = xmlrpc.client.ServerProxy(server_url, use_builtin_types=True)
+
+        for i in range(fsconfig.NUM_SERVERS):
+            # initialize XMLRPC client connection to raw block server
+            server_url = 'http://' + fsconfig.SERVER_ADDRESS + ':' + str(PORT + i)
+            self.block_servers[i] = xmlrpc.client.ServerProxy(server_url, use_builtin_types=True)
+        
         socket.setdefaulttimeout(fsconfig.SOCKET_TIMEOUT)
-        # initialize block cache empty
-        self.blockcache = {}
+
 
     ## Put: interface to write a raw block of data to the block indexed by block number
     ## Blocks are padded with zeroes up to BLOCK_SIZE
 
-    def SinglePut(self, block_number, block_data):
+    def SinglePut(self, block_number, block_data, server_id):
 
         logging.debug(
             'Put: block number ' + str(block_number) + ' len ' + str(len(block_data)) + '\n' + str(block_data.hex()))
@@ -50,7 +57,7 @@ class DiskBlocks():
             while rpcretry:
                 rpcretry = False
                 try:
-                    ret = self.block_server.Put(block_number, putdata)
+                    ret = self.block_servers[server_id].Put(block_number, putdata)
                 except socket.timeout:
                     print("SERVER_TIMED_OUT")
                     time.sleep(fsconfig.RETRY_INTERVAL)
@@ -64,15 +71,11 @@ class DiskBlocks():
                 LAST_WRITER_BLOCK = fsconfig.TOTAL_NUM_BLOCKS - 2
                 updated_block = bytearray(fsconfig.BLOCK_SIZE)
                 updated_block[0] = fsconfig.CID
-                rpcretry = True
-                while rpcretry:
-                    rpcretry = False
-                    try:
-                        self.block_server.Put(LAST_WRITER_BLOCK, updated_block)
-                    except socket.timeout:
-                        print("SERVER_TIMED_OUT")
-                        time.sleep(fsconfig.RETRY_INTERVAL)
-                        rpcretry = True
+                try:
+                    self.block_server.Put(LAST_WRITER_BLOCK, updated_block)
+                except socket.timeout:
+                    print("SERVER_TIMED_OUT")
+                    return -1, "SERVER_TIMEOUT"
             if ret == -1:
                 logging.error('Put: Server returns error')
                 quit()
@@ -85,7 +88,7 @@ class DiskBlocks():
     ## Get: interface to read a raw block of data from block indexed by block number
     ## Equivalent to the textbook's BLOCK_NUMBER_TO_BLOCK(b)
 
-    def SingleGet(self, block_number):
+    def SingleGet(self, block_number, server_id):
 
         logging.debug('Get: ' + str(block_number))
         if block_number in range(0, fsconfig.TOTAL_NUM_BLOCKS):
@@ -99,15 +102,11 @@ class DiskBlocks():
                 data = self.blockcache[block_number]
             else:
                 print('CACHE_MISS ' + str(block_number))
-                rpcretry = True
-                while rpcretry:
-                    rpcretry = False
-                    try:
-                        data = self.block_server.Get(block_number)
-                    except socket.timeout:
-                        print("SERVER_TIMED_OUT")
-                        time.sleep(fsconfig.RETRY_INTERVAL)
-                        rpcretry = True
+                try:
+                    data = self.block_servers[server_id].Get(block_number)
+                except socket.timeout:
+                    print("SERVER_TIMED_OUT")
+                    return -1, "SERVER_TIMEOUT"
                 # add to cache
                 self.blockcache[block_number] = data
             # return as bytearray
@@ -118,18 +117,14 @@ class DiskBlocks():
 
 ## RSM: read and set memory equivalent
 
-    def RSM(self, block_number):
+    def SingleRSM(self, block_number, server_id):
         logging.debug('RSM: ' + str(block_number))
         if block_number in range(0, fsconfig.TOTAL_NUM_BLOCKS):
-            rpcretry = True
-            while rpcretry:
-                rpcretry = False
-                try:
-                    data = self.block_server.RSM(block_number)
-                except socket.timeout:
-                    print("SERVER_TIMED_OUT")
-                    time.sleep(fsconfig.RETRY_INTERVAL)
-                    rpcretry = True
+            try:
+                data = self.block_servers[server_id].RSM(block_number)
+            except socket.timeout:
+                print("SERVER_TIMED_OUT")
+                return 0, "SERVER_TIMEOUT"
 
             return bytearray(data)
 
@@ -170,34 +165,59 @@ class DiskBlocks():
 
     ## HW5 ##
 
-    def MapBlockNumber(self, virtual_block_number):
-        server = 0
-        block_number = 0
-        return (server, block_number)
+    def VirtualToPhysical(self, virtual_block_number):
+        server_id = virtual_block_number // fsconfig.BLOCK_SIZE
+        block_number = virtual_block_number % fsconfig.BLOCK_SIZE
+        return (server_id, block_number)
 
     def Get(self, virtual_block_number):
-        server, block_number = self.MapBlockNumber(virtual_block_number)
-        # configure server here, or in SingleGet? not sure yet
-        data = self.SingleGet(block_number)
+        server_id, block_number = self.VirtualToPhysical(virtual_block_number)
+        data, error = self.SingleGet(block_number, server_id)
 
+        if error == "SERVER_TIMEOUT":
+            print("SERVER_DISCONNECTED GET " + str(virtual_block_number))
+            return -1
+
+        # assuming server will return data of -1 if block is corrupted
         if data == -1:
-            print("CORRUPTED BLOCK" , str(virtual_block_number)) # virtual or physical?
+            print("CORRUPTED BLOCK " + str(virtual_block_number))
             return -1
         else:
             return data
         
     def Put(self, virtual_block_number, block_data):
-        server, block_number = self.MapBlockNumber(virtual_block_number)
-        # configure server here, or in SingleGet? not sure yet
+        server_id, block_number = self.VirtualToPhysical(virtual_block_number)
 
-        # if block_number is corrupted:
-        # print("CORRUPTED BLOCK" , str(virtual_block_number)) # virtual or physical?
+        # implement logic to distribute blocks across multiple servers
+        # RAID 1 IMPLEMENTATION:
+        for i in range(fsconfig.NUM_SERVERS):
+            data, error = self.SinglePut(block_number, block_data, server_id=i)
 
-        # implement logic ot distribute blocks across multiple servers
-        self.SinglePut(block_number, block_data)
-        return
+            if error == "SERVER_TIMEOUT":
+                print("SERVER_DISCONNECTED PUT " + str(virtual_block_number))
+                return -1
+
+            # assuming server will return data of -1 if block is corrupted
+            if data == -1:
+                print("CORRUPTED BLOCK " + str(virtual_block_number))
+                return -1
         
+        return 
+    
+    def RSM(self, virtual_block_number):
+        server_id, block_number = self.VirtualToPhysical(virtual_block_number)
+        
+        data, error = self.SingleRSM(block_number, server_id)
 
+        if error == "SERVER_TIMEOUT":
+            print("SERVER_DISCONNECTED RSM " + str(virtual_block_number))
+            return -1
+        
+        if data == -1:
+            print("CORRUPTED BLOCK " + str(virtual_block_number))
+            return -1
+
+        return data
 
     ## Serializes and saves the DiskBlocks block[] data structure to a "dump" file on your disk
 
