@@ -82,7 +82,6 @@ if __name__ == "__main__":
 
 
   def Get(block_number):
-    print(cblk)
     if block_number == cblk:
       return -1, "CORRUPTED_BLOCK"
     result = RawBlocks.block[block_number]
