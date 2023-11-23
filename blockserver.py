@@ -11,12 +11,17 @@ class RequestHandler(SimpleXMLRPCRequestHandler):
   rpc_paths = ('/RPC2',)
 
 class DiskBlocks():
-  def __init__(self, total_num_blocks, block_size, delayat):
+  def __init__(self, total_num_blocks, block_size, delayat, cblk):
+    self.checksums = {}
     # This class stores the raw block array
     self.block = []
     # initialize request counter
     self.counter = 0
     self.delayat = delayat
+    self.cblk = cblk
+    # if cblk has been provided
+    if cblk != -1:
+      self.checksums[cblk] = -1 
     # Initialize raw blocks
     for i in range (0, total_num_blocks):
       putdata = bytearray(block_size)
@@ -36,6 +41,7 @@ if __name__ == "__main__":
   ap.add_argument('-bs', '--block_size', type=int, help='an integer value')
   ap.add_argument('-port', '--port', type=int, help='an integer value')
   ap.add_argument('-delayat', '--delayat', type=int, help='an integer value')
+  ap.add_argument('-cblk', '--cblk', type=int, help='an integer value')
 
   args = ap.parse_args()
 
@@ -62,22 +68,34 @@ if __name__ == "__main__":
   else:
     # initialize delayat with artificially large number
     delayat = 1000000000
+    
+  if args.cblk:
+    cblk = args.cblk
+  else:
+    cblk = -1
 
   # initialize blocks
-  RawBlocks = DiskBlocks(TOTAL_NUM_BLOCKS, BLOCK_SIZE, delayat)
+  RawBlocks = DiskBlocks(TOTAL_NUM_BLOCKS, BLOCK_SIZE, delayat, cblk)
 
   # Create server
   server = SimpleXMLRPCServer(("127.0.0.1", PORT), requestHandler=RequestHandler)
 
 
   def Get(block_number):
+    print(cblk)
+    if block_number == cblk:
+      return -1, "CORRUPTED_BLOCK"
     result = RawBlocks.block[block_number]
     RawBlocks.Sleep()
-    return result
+    return result, RawBlocks.checksums[block_number]
 
   server.register_function(Get)
 
   def Put(block_number, data):
+    
+    if block_number == cblk:
+      return -1, "CORRUPTED_BLOCK"
+    RawBlocks.checksums[block_number] = data.md5().hexidigest()
     RawBlocks.block[block_number] = data.data
     RawBlocks.Sleep()
     return 0
