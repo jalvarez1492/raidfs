@@ -9,7 +9,7 @@ import xmlrpc.client, socket, time
 class DiskBlocks():
     def __init__(self):
 
-        self.block_servers = []
+        self.block_servers = {}
 
         # initialize block cache empty
         self.blockcache = {}
@@ -39,6 +39,9 @@ class DiskBlocks():
     ## Blocks are padded with zeroes up to BLOCK_SIZE
 
     def SinglePut(self, block_number, block_data, server_id):
+        logging.debug("PUT: Server id: " + str(server_id))
+        logging.debug("PUT: block number: " + str(block_number))
+
 
         logging.debug(
             'Put: block number ' + str(block_number) + ' len ' + str(len(block_data)) + '\n' + str(block_data.hex()))
@@ -53,15 +56,13 @@ class DiskBlocks():
             # commenting this out as the request now goes to the server
             # self.block[block_number] = putdata
             # call Put() method on the server; code currently quits on any server failure
-            rpcretry = True
-            while rpcretry:
-                rpcretry = False
-                try:
-                    ret = self.block_servers[server_id].Put(block_number, putdata)
-                except socket.timeout:
-                    print("SERVER_TIMED_OUT")
-                    time.sleep(fsconfig.RETRY_INTERVAL)
-                    rpcretry = True
+            try:
+                ret = self.block_servers[server_id].Put(block_number, putdata)
+            except socket.timeout:
+                print("SERVER_TIMED_OUT")
+                return -1, "SERVER_TIMEOUT"
+            except:
+                return -1, "SERVER_DISCONNECTED"
             # update block cache
             print('CACHE_WRITE_THROUGH ' + str(block_number))
             self.blockcache[block_number] = putdata
@@ -72,14 +73,16 @@ class DiskBlocks():
                 updated_block = bytearray(fsconfig.BLOCK_SIZE)
                 updated_block[0] = fsconfig.CID
                 try:
-                    self.block_server.Put(LAST_WRITER_BLOCK, updated_block)
+                    self.block_servers[server_id].Put(LAST_WRITER_BLOCK % fsconfig.BLOCK_SIZE, updated_block)
                 except socket.timeout:
                     print("SERVER_TIMED_OUT")
                     return -1, "SERVER_TIMEOUT"
+                except:
+                    return -1, "SERVER_DISCONNECTED"
             if ret == -1:
                 logging.error('Put: Server returns error')
                 quit()
-            return 0
+            return 0, None # none error
         else:
             logging.error('Put: Block out of range: ' + str(block_number))
             quit()
@@ -89,6 +92,8 @@ class DiskBlocks():
     ## Equivalent to the textbook's BLOCK_NUMBER_TO_BLOCK(b)
 
     def SingleGet(self, block_number, server_id):
+        logging.debug("GET: Server id: " + str(server_id))
+        logging.debug("GET: block number: " + str(block_number))
 
         logging.debug('Get: ' + str(block_number))
         if block_number in range(0, fsconfig.TOTAL_NUM_BLOCKS):
@@ -107,10 +112,12 @@ class DiskBlocks():
                 except socket.timeout:
                     print("SERVER_TIMED_OUT")
                     return -1, "SERVER_TIMEOUT"
+                except:
+                    return -1, "SERVER_DISCONNECTED"
                 # add to cache
                 self.blockcache[block_number] = data
             # return as bytearray
-            return bytearray(data)
+            return bytearray(data), None
 
         logging.error('DiskBlocks::Get: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
         quit()
@@ -125,8 +132,10 @@ class DiskBlocks():
             except socket.timeout:
                 print("SERVER_TIMED_OUT")
                 return 0, "SERVER_TIMEOUT"
+            except:
+                return -1, "SERVER_DISCONNECTED"
 
-            return bytearray(data)
+            return bytearray(data), None
 
         logging.error('RSM: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
         quit()
@@ -137,6 +146,8 @@ class DiskBlocks():
         logging.debug('Acquire')
         RSM_BLOCK = fsconfig.TOTAL_NUM_BLOCKS - 1
         lockvalue = self.RSM(RSM_BLOCK);
+        if lockvalue == -1:
+            return -1
         logging.debug("RSM_BLOCK Lock value: " + str(lockvalue))
         while lockvalue[0] == 1:  # test just first byte of block to check if RSM_LOCKED
             logging.debug("Acquire: spinning...")
@@ -166,21 +177,31 @@ class DiskBlocks():
     ## HW5 ##
 
     def VirtualToPhysical(self, virtual_block_number):
-        server_id = virtual_block_number // fsconfig.BLOCK_SIZE
-        block_number = virtual_block_number % fsconfig.BLOCK_SIZE
+        server_id = virtual_block_number // (fsconfig.TOTAL_NUM_BLOCKS // fsconfig.NUM_SERVERS)
+        block_number = virtual_block_number % (fsconfig.TOTAL_NUM_BLOCKS // fsconfig.NUM_SERVERS)
         return (server_id, block_number)
 
     def Get(self, virtual_block_number):
         server_id, block_number = self.VirtualToPhysical(virtual_block_number)
-        data, error = self.SingleGet(block_number, server_id)
 
-        if error == "SERVER_TIMEOUT":
-            print("SERVER_DISCONNECTED GET " + str(virtual_block_number))
-            return -1
+        #data, error = self.SingleGet(block_number, server_id)
 
-        # assuming server will return data of -1 if block is corrupted
-        if data == -1:
-            print("CORRUPTED BLOCK " + str(virtual_block_number))
+        ####### RAID 1 #######
+        for raid1_server in range(fsconfig.NUM_SERVERS):
+            data, error = self.SingleGet(block_number, server_id=raid1_server)
+
+            if error == "SERVER_DISCONNECTED":
+                print("SERVER_DISCONNECTED GET " + str(virtual_block_number))
+                pass
+
+            # Break if first data is not an offline server, meaning server is valid. No need to loop through all
+            if error != "SERVER_DISCONNECTED":
+                break
+
+        ##### END RAID 1 #####
+
+        if data == -1 and error != "SERVER_DISCONNECTED":
+            print("CORRUPTED_BLOCK " + str(virtual_block_number))
             return -1
         else:
             return data
@@ -188,33 +209,52 @@ class DiskBlocks():
     def Put(self, virtual_block_number, block_data):
         server_id, block_number = self.VirtualToPhysical(virtual_block_number)
 
-        # implement logic to distribute blocks across multiple servers
-        # RAID 1 IMPLEMENTATION:
-        for i in range(fsconfig.NUM_SERVERS):
-            data, error = self.SinglePut(block_number, block_data, server_id=i)
+        #data, error = self.SinglePut(block_number, block_data, server_id=server_id)
 
-            if error == "SERVER_TIMEOUT":
+        ####### RAID 1 #######
+        for raid1_server in range(fsconfig.NUM_SERVERS):
+            data, error = self.SinglePut(block_number, block_data, server_id=raid1_server)
+
+            if error == "SERVER_TIMEOUT" or error == "SERVER_DISCONNECTED":
                 print("SERVER_DISCONNECTED PUT " + str(virtual_block_number))
-                return -1
+            
 
-            # assuming server will return data of -1 if block is corrupted
-            if data == -1:
-                print("CORRUPTED BLOCK " + str(virtual_block_number))
-                return -1
+        if data == -1 and error != "SERVER_DISCONNECTED":
+            print("CORRUPTED_BLOCK " + str(virtual_block_number))
+            pass
         
-        return 
+        return 0
     
     def RSM(self, virtual_block_number):
         server_id, block_number = self.VirtualToPhysical(virtual_block_number)
+        # data = self.SingleRSM(block_number, server_id)
         
-        data, error = self.SingleRSM(block_number, server_id)
+        ####### RAID 1 #######
+        for raid1_server in range(fsconfig.NUM_SERVERS):
+            data, error = self.SingleRSM(block_number, server_id=raid1_server)
 
-        if error == "SERVER_TIMEOUT":
-            print("SERVER_DISCONNECTED RSM " + str(virtual_block_number))
+            # if errors are received, pass to next server
+            if error == "SERVER_TIMEOUT":
+                print("SERVER_TIMEOUT RSM " + str(virtual_block_number))
+                pass
+
+            if error == "SERVER_DISCONNECTED":
+                print("SERVER_DISCONNECTED RSM " + str(virtual_block_number))
+                pass
+
+            if data == -1 and error != "SERVER_DISCONNECTED":
+                print("CORRUPTED_BLOCK " + str(virtual_block_number))
+                pass
+
+            return data
+
+        if error == "SERVER_TIMEOUT" or error == "SERVER_DISCONNECTED":
+            # No need to print again for RAID1, handled in RAID1 loop
+            # print("SERVER_DISCONNECTED RSM " + str(virtual_block_number))
             return -1
         
         if data == -1:
-            print("CORRUPTED BLOCK " + str(virtual_block_number))
+            print("CORRUPTED_BLOCK " + str(virtual_block_number))
             return -1
 
         return data

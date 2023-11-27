@@ -1,0 +1,23 @@
+basic testing:
+
+------ RAID 1 ------
+client:
+python3 fsmain.py -ns 2 -nb 256 -bs 256 -cid 0 -port 8000
+
+server(s):
+python3 blockserver.py -nb 256 -bs 256 -port 8000
+python3 blockserver.py -nb 256 -bs 256 -port 8001
+
+Note: Number of blocks on client side is equal to number of blocks of just one server, because data will be duplicated.
+
+
+------ RAID 4 ------
+
+...
+
+
+------ RAID 5 ------
+
+...
+
+--------------------
