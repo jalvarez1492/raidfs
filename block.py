@@ -177,8 +177,8 @@ class DiskBlocks():
     ## HW5 ##
 
     def VirtualToPhysical(self, virtual_block_number):
-        server_id = virtual_block_number // (fsconfig.TOTAL_NUM_BLOCKS // fsconfig.NUM_SERVERS)
-        block_number = virtual_block_number % (fsconfig.TOTAL_NUM_BLOCKS // fsconfig.NUM_SERVERS)
+        server_id = virtual_block_number // (fsconfig.TOTAL_NUM_BLOCKS)
+        block_number = virtual_block_number % (fsconfig.TOTAL_NUM_BLOCKS)
         return (server_id, block_number)
 
     def Get(self, virtual_block_number):
