@@ -5,6 +5,7 @@ import fsconfig
 
 from xmlrpc.server import SimpleXMLRPCServer
 from xmlrpc.server import SimpleXMLRPCRequestHandler
+import hashlib
 
 # Restrict to a particular path.
 class RequestHandler(SimpleXMLRPCRequestHandler):
@@ -83,18 +84,18 @@ if __name__ == "__main__":
 
   def Get(block_number):
     if block_number == cblk:
-      return -1, "CORRUPTED_BLOCK"
+      return -1#, "CORRUPTED_BLOCK"
     result = RawBlocks.block[block_number]
     RawBlocks.Sleep()
-    return result, RawBlocks.checksums[block_number]
+    return result
 
   server.register_function(Get)
 
   def Put(block_number, data):
-    
+
     if block_number == cblk:
-      return -1, "CORRUPTED_BLOCK"
-    RawBlocks.checksums[block_number] = data.md5().hexidigest()
+      return -1#, "CORRUPTED_BLOCK"
+    RawBlocks.checksums[block_number] = hashlib.md5(data.data).hexdigest()
     RawBlocks.block[block_number] = data.data
     RawBlocks.Sleep()
     return 0
