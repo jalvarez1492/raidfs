@@ -181,7 +181,7 @@ class DiskBlocks():
         # server_id = virtual_block_number // (fsconfig.TOTAL_NUM_BLOCKS)
         ####### RAID 4 #######
         server_id = virtual_block_number % (fsconfig.NUM_SERVERS - 1)
-        block_number = virtual_block_number % (fsconfig.TOTAL_NUM_BLOCKS)
+        block_number = virtual_block_number % (fsconfig.TOTAL_NUM_BLOCKS // fsconfig.NUM_SERVERS - 1)
         return (server_id, block_number)
 
     def Get(self, virtual_block_number):
@@ -272,23 +272,24 @@ class DiskBlocks():
         # data = self.SingleRSM(block_number, server_id)
         
         ####### RAID 1 #######
-        for raid1_server in range(fsconfig.NUM_SERVERS):
-            data, error = self.SingleRSM(block_number, server_id=raid1_server)
+        # for raid1_server in range(fsconfig.NUM_SERVERS):
+        ####### RAID 4 #######
+        data, error = self.SingleRSM(block_number, server_id)
 
-            # if errors are received, pass to next server
-            if error == "SERVER_TIMEOUT":
-                print("SERVER_TIMEOUT RSM " + str(virtual_block_number))
-                pass
+        #     # if errors are received, pass to next server
+        #     if error == "SERVER_TIMEOUT":
+        #         print("SERVER_TIMEOUT RSM " + str(virtual_block_number))
+        #         pass
 
-            if error == "SERVER_DISCONNECTED":
-                print("SERVER_DISCONNECTED RSM " + str(virtual_block_number))
-                pass
+        #     if error == "SERVER_DISCONNECTED":
+        #         print("SERVER_DISCONNECTED RSM " + str(virtual_block_number))
+        #         pass
 
-            if data == -1 and error != "SERVER_DISCONNECTED":
-                print("CORRUPTED_BLOCK " + str(virtual_block_number))
-                pass
+        #     if data == -1 and error != "SERVER_DISCONNECTED":
+        #         print("CORRUPTED_BLOCK " + str(virtual_block_number))
+        #         pass
 
-            return data
+        #     return data
 
         if error == "SERVER_TIMEOUT" or error == "SERVER_DISCONNECTED":
             # No need to print again for RAID1, handled in RAID1 loop
