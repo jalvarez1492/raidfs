@@ -177,8 +177,11 @@ class DiskBlocks():
     ## HW5 ##
 
     def VirtualToPhysical(self, virtual_block_number):
-        server_id = virtual_block_number // (fsconfig.TOTAL_NUM_BLOCKS)
-        block_number = virtual_block_number % (fsconfig.TOTAL_NUM_BLOCKS)
+        ####### RAID 1 #######
+        # server_id = virtual_block_number // (fsconfig.TOTAL_NUM_BLOCKS)
+        ####### RAID 4 #######
+        server_id = virtual_block_number % (fsconfig.NUM_SERVERS - 1)
+        block_number = virtual_block_number % (fsconfig.TOTAL_NUM_BLOCKS // fsconfig.NUM_SERVERS - 1)
         return (server_id, block_number)
 
     def Get(self, virtual_block_number):
@@ -187,18 +190,28 @@ class DiskBlocks():
         #data, error = self.SingleGet(block_number, server_id)
 
         ####### RAID 1 #######
-        for raid1_server in range(fsconfig.NUM_SERVERS):
-            data, error = self.SingleGet(block_number, server_id=raid1_server)
+        # for raid1_server in range(fsconfig.NUM_SERVERS):
+        #     data, error = self.SingleGet(block_number, server_id=raid1_server)
 
-            if error == "SERVER_DISCONNECTED":
-                print("SERVER_DISCONNECTED GET " + str(virtual_block_number))
-                pass
+        #     if error == "SERVER_DISCONNECTED":
+        #         print("SERVER_DISCONNECTED GET " + str(virtual_block_number))
+        #         pass
 
-            # Break if first data is not an offline server, meaning server is valid. No need to loop through all
-            if error != "SERVER_DISCONNECTED":
-                break
+        #     # Break if first data is not an offline server, meaning server is valid. No need to loop through all
+        #     if error != "SERVER_DISCONNECTED":
+        #         break
 
         ##### END RAID 1 #####
+        
+        ##### RAID 4 #####
+        
+        data, error = self.SingleGet(block_number, server_id)
+
+        if error == "SERVER_DISCONNECTED":
+            print("SERVER_DISCONNECTED GET " + str(virtual_block_number))
+            pass
+        
+        ##### END RAID 4 #####
 
         if data == -1 and error != "SERVER_DISCONNECTED":
             print("CORRUPTED_BLOCK " + str(virtual_block_number))
@@ -207,22 +220,51 @@ class DiskBlocks():
             return data
         
     def Put(self, virtual_block_number, block_data):
+        print(virtual_block_number)
+        print(fsconfig.TOTAL_NUM_BLOCKS)
         server_id, block_number = self.VirtualToPhysical(virtual_block_number)
-
+        print("server " + str(server_id))
         #data, error = self.SinglePut(block_number, block_data, server_id=server_id)
 
         ####### RAID 1 #######
-        for raid1_server in range(fsconfig.NUM_SERVERS):
-            data, error = self.SinglePut(block_number, block_data, server_id=raid1_server)
+        # for raid1_server in range(fsconfig.NUM_SERVERS):
+        #     data, error = self.SinglePut(block_number, block_data, server_id=raid1_server)
 
-            if error == "SERVER_TIMEOUT" or error == "SERVER_DISCONNECTED":
-                print("SERVER_DISCONNECTED PUT " + str(virtual_block_number))
+        #     if error == "SERVER_TIMEOUT" or error == "SERVER_DISCONNECTED":
+        #         print("SERVER_DISCONNECTED PUT " + str(virtual_block_number))
             
+
+        # if data == -1 and error != "SERVER_DISCONNECTED":
+        #     print("CORRUPTED_BLOCK " + str(virtual_block_number))
+        #     pass
+        
+        ####### RAID 4 #######
+        
+        oldData, error = self.SingleGet(block_number, server_id)
+        currParity, error = self.SingleGet(block_number, fsconfig.NUM_SERVERS-1)
+        parity = bytearray(fsconfig.BLOCK_SIZE)
+        for i in range(fsconfig.BLOCK_SIZE):
+            if(oldData != -1):
+                parity[i] = oldData[i] ^ block_data[i]
+            else:
+                parity[i] = block_data[i] ^ 0
+        for i in range(fsconfig.BLOCK_SIZE):
+            if(currParity != -1):   
+                parity[i] = parity[i] ^ currParity[i]
+            else:
+                parity[i] = parity[i] ^ 0
+
+        data, error = self.SinglePut(block_number, block_data, server_id)
+        
+        if error == "SERVER_TIMEOUT" or error == "SERVER_DISCONNECTED":
+                print("SERVER_DISCONNECTED PUT " + str(virtual_block_number))
 
         if data == -1 and error != "SERVER_DISCONNECTED":
             print("CORRUPTED_BLOCK " + str(virtual_block_number))
             pass
         
+        data, error = self.SinglePut(block_number, parity, fsconfig.NUM_SERVERS-1)
+
         return 0
     
     def RSM(self, virtual_block_number):
@@ -230,23 +272,24 @@ class DiskBlocks():
         # data = self.SingleRSM(block_number, server_id)
         
         ####### RAID 1 #######
-        for raid1_server in range(fsconfig.NUM_SERVERS):
-            data, error = self.SingleRSM(block_number, server_id=raid1_server)
+        # for raid1_server in range(fsconfig.NUM_SERVERS):
+        ####### RAID 4 #######
+        data, error = self.SingleRSM(block_number, server_id)
 
-            # if errors are received, pass to next server
-            if error == "SERVER_TIMEOUT":
-                print("SERVER_TIMEOUT RSM " + str(virtual_block_number))
-                pass
+        #     # if errors are received, pass to next server
+        #     if error == "SERVER_TIMEOUT":
+        #         print("SERVER_TIMEOUT RSM " + str(virtual_block_number))
+        #         pass
 
-            if error == "SERVER_DISCONNECTED":
-                print("SERVER_DISCONNECTED RSM " + str(virtual_block_number))
-                pass
+        #     if error == "SERVER_DISCONNECTED":
+        #         print("SERVER_DISCONNECTED RSM " + str(virtual_block_number))
+        #         pass
 
-            if data == -1 and error != "SERVER_DISCONNECTED":
-                print("CORRUPTED_BLOCK " + str(virtual_block_number))
-                pass
+        #     if data == -1 and error != "SERVER_DISCONNECTED":
+        #         print("CORRUPTED_BLOCK " + str(virtual_block_number))
+        #         pass
 
-            return data
+        #     return data
 
         if error == "SERVER_TIMEOUT" or error == "SERVER_DISCONNECTED":
             # No need to print again for RAID1, handled in RAID1 loop
