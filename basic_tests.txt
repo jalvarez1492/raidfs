@@ -18,6 +18,51 @@ Note: Number of blocks on client side is equal to number of blocks of just one s
 
 ------ RAID 5 ------
 
-...
+python3 fsmain.py -ns 5 -nb 1024 -bs 256 -cid 0 -port 8000
+
+python3 blockserver.py -nb 256 -bs 256 -port 8000
+python3 blockserver.py -nb 256 -bs 256 -port 8001
+python3 blockserver.py -nb 256 -bs 256 -port 8002
+python3 blockserver.py -nb 256 -bs 256 -port 8003
+python3 blockserver.py -nb 256 -bs 256 -port 8004
+
+--- EEL5737 data ---
+
+Test 0:
+Number of Accesses for server 0: 4
+Number of Accesses for server 1: 69
+Number of Accesses for server 2: 93
+Number of Accesses for server 3: 63
+Number of Accesses for server 4: 54
+
+Test 1:
+Number of Accesses for server 0: 9
+Number of Accesses for server 1: 19
+Number of Accesses for server 2: 54
+Number of Accesses for server 3: 30
+Number of Accesses for server 4: 54
+
+Test 2:
+Number of Accesses for server 0: 3
+Number of Accesses for server 1: 4
+Number of Accesses for server 2: 178
+Number of Accesses for server 3: 90
+Number of Accesses for server 4: 69
+
+Test 3:
+Number of Accesses for server 0: 6
+Number of Accesses for server 1: 4
+Number of Accesses for server 2: 181
+Number of Accesses for server 3: 88
+Number of Accesses for server 4: 47
+
+Test 4:
+Number of Accesses for server 0: 0
+Number of Accesses for server 1: 7
+Number of Accesses for server 2: 63
+Number of Accesses for server 3: 74
+Number of Accesses for server 4: 35
+
+
 
 --------------------

@@ -381,6 +381,8 @@ class FSShell():
                     self.lns(splitcmd[1], splitcmd[2])
                     self.RawBlocks.Release()
             elif splitcmd[0] == "exit":
+                for i in range(fsconfig.NUM_SERVERS):
+                    print(f"Number of Accesses for server {i}: {self.RawBlocks.load_analysis[i]}", )
                 return
             else:
                 print ("command " + splitcmd[0] + " not valid.\n")
